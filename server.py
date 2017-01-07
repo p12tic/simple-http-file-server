@@ -26,7 +26,8 @@ import socket
 class SimpleUploadHandler(SimpleHTTPRequestHandler):
 
     def do_PUT(self):
-        self.log_write(str(self.headers))
+        self.log_headers_if_needed()
+
         path = self.translate_path(self.path)
         if os.path.isdir(path):
             self.send_error(405)
@@ -57,6 +58,10 @@ class SimpleUploadHandler(SimpleHTTPRequestHandler):
 
     def log_write(self, msg):
         self.server.log_file.write(msg)
+
+    def log_headers_if_needed(self):
+        if self.server.log_headers:
+            self.log_write(str(self.headers))
 
     def log_message(self, format, *args):
         msg = "%s - - [%s] %s\n" % (self.address_string(),
@@ -162,7 +167,7 @@ class AuthConfig:
 class AuthUploadHandler(SimpleUploadHandler):
 
     def do_AUTHHEAD(self):
-        self.log_write(str(self.headers))
+        self.log_headers_if_needed()
 
         self.send_response(401)
         self.send_header('WWW-Authenticate', 'Basic realm=\"Test\"')
@@ -202,21 +207,25 @@ class AuthUploadHandler(SimpleUploadHandler):
 
     def do_HEAD(self):
         if self.check_auth('r'):
-             SimpleHTTPRequestHandler.do_HEAD(self)
+            self.log_headers_if_needed()
+            SimpleHTTPRequestHandler.do_HEAD(self)
 
     def do_GET(self):
         if self.check_auth('r'):
-             SimpleHTTPRequestHandler.do_GET(self)
+            self.log_headers_if_needed()
+            SimpleHTTPRequestHandler.do_GET(self)
 
     def do_PUT(self):
         if self.check_auth('w'):
-             SimpleUploadHandler.do_PUT(self)
+            SimpleUploadHandler.do_PUT(self)
 
 def main():
     parser = argparse.ArgumentParser(prog='server.py')
     parser.add_argument('port', type=int, help="The port to listen on")
     parser.add_argument('--access_config', type=str, default=None,
                         help="Path to access config")
+    parser.add_argument('--log_headers', action='store_true', default=False,
+                        help="If set logs headers of all requests")
     parser.add_argument('--log', type=str, default=None,
                         help="Path to log file")
     args = parser.parse_args()
@@ -245,6 +254,7 @@ def main():
         server.auth_config = auth_config
 
     server.log_file = log_file
+    server.log_headers = args.log_headers
     server.serve_forever()
 
 if __name__ == '__main__':
