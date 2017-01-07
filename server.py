@@ -57,10 +57,13 @@ class SimpleUploadHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def log_write(self, msg):
-        self.server.log_file.write(msg)
+        if hasattr(self.server, 'log_file') and self.server.log_file is not None:
+            self.server.log_file.write(msg)
+        else:
+            sys.stderr.write(msg)
 
     def log_headers_if_needed(self):
-        if self.server.log_headers:
+        if hasattr(self.server, 'log_headers') and self.server.log_headers == True:
             self.log_write(str(self.headers))
 
     def log_message(self, format, *args):
