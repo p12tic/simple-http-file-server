@@ -16,6 +16,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
 from http.server import SimpleHTTPRequestHandler, HTTPServer
+import argparse
 import os
 import sys
 import base64
@@ -25,7 +26,7 @@ import socket
 class SimpleUploadHandler(SimpleHTTPRequestHandler):
 
     def do_PUT(self):
-        print(self.headers)
+        self.log_write(str(self.headers))
         path = self.translate_path(self.path)
         if os.path.isdir(path):
             self.send_error(405)
@@ -47,12 +48,21 @@ class SimpleUploadHandler(SimpleHTTPRequestHandler):
                 fout.write(self.rfile.read(bufsize))
             fout.close()
         except Exception as e:
-            print(e)
+            self.log_message("%s", str(e))
             self.send_error(405)
             return
 
         self.send_response(200)
         self.end_headers()
+
+    def log_write(self, msg):
+        self.server.log_file.write(msg)
+
+    def log_message(self, format, *args):
+        msg = "%s - - [%s] %s\n" % (self.address_string(),
+                                    self.log_date_time_string(),
+                                    format % args)
+        self.log_write(msg)
 
 def encode_http_auth_password(user, psw):
     txt = user + ':' + psw
@@ -76,9 +86,10 @@ class PathConfig:
 
 class AuthConfig:
 
-    def __init__(self):
+    def __init__(self, log_file=sys.stdout):
         self.root = PathConfig('')
         self.users = {}
+        self.log_file = log_file
 
     def add_path_config(self, path, user, perms):
         path_items = [ p for p in path.split('/') if p not in [ '', '.', '..' ] ]
@@ -108,8 +119,8 @@ class AuthConfig:
                 self.users[user] = psw
 
         except Exception as e:
-            print("Error reading config file " + config_file_path)
-            print(e)
+            self.log_write("Error reading config file " + config_file_path)
+            self.log_write(str(e))
 
     def check_perm(self, perms, user, perm):
         if user in perms:
@@ -151,7 +162,7 @@ class AuthConfig:
 class AuthUploadHandler(SimpleUploadHandler):
 
     def do_AUTHHEAD(self):
-        print(self.headers)
+        self.log_write(str(self.headers))
 
         self.send_response(401)
         self.send_header('WWW-Authenticate', 'Basic realm=\"Test\"')
@@ -179,7 +190,7 @@ class AuthUploadHandler(SimpleUploadHandler):
             return self.server.auth_config.check_path_for_perm(path, perm, user, psw)
 
         except Exception as e:
-            print("Error serving " + self.path)
+            self.log_message("%s", str(e))
             self.wfile.write(str(e))
             return False
 
@@ -201,31 +212,40 @@ class AuthUploadHandler(SimpleUploadHandler):
         if self.check_auth('w'):
              SimpleUploadHandler.do_PUT(self)
 
-if __name__ == '__main__':
-    def help_and_exit():
-        print('usage server.py port [--access_config file]')
+def main():
+    parser = argparse.ArgumentParser(prog='server.py')
+    parser.add_argument('port', type=int, help="The port to listen on")
+    parser.add_argument('--access_config', type=str, default=None,
+                        help="Path to access config")
+    parser.add_argument('--log', type=str, default=None,
+                        help="Path to log file")
+    args = parser.parse_args()
+
+    port = args.port
+    access_config_path = args.access_config
+    log_path = args.log
+
+    if log_path is not None:
+        log_file = open(log_path, 'w')
+    else:
+        log_file = sys.stdout
+
+    if access_config_path is not None and not os.path.exists(access_config_path):
+        log_file.write("No such file: " + access_config_path)
         sys.exit(1)
 
-    if ('--help' in sys.argv) or (len(sys.argv) not in [2,4]):
-        help_and_exit()
-    port = int(sys.argv[1])
-    access_config_file = None
-    if len(sys.argv) == 4:
-        if sys.argv[2] != "--access_config":
-            help_and_exit()
-        access_config_file = sys.argv[3]
-        if not os.path.exists(access_config_file):
-            print("No such file: " + access_config_file)
-            help_and_exit()
-
-    if access_config_file == None:
-        print('listening on localhost:%d' %(port))
+    if access_config_path is None:
+        log_file.write('listening on localhost:%d' %(port))
         server = HTTPServer(('localhost', port), SimpleUploadHandler)
     else:
-        print('listening on localhost:%d with access restrictions' %(port))
+        log_file.write('listening on localhost:%d with access restrictions' %(port))
         auth_config = AuthConfig()
-        auth_config.load_config(access_config_file)
+        auth_config.load_config(access_config_path)
         server = HTTPServer(('localhost', port), AuthUploadHandler)
         server.auth_config = auth_config
 
+    server.log_file = log_file
     server.serve_forever()
+
+if __name__ == '__main__':
+    main()
