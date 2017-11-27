@@ -299,6 +299,32 @@ class ListenerThread(threading.Thread):
         server.log_headers = self.log_headers
         server.serve_forever()
 
+def setup_and_start_http_server(host, port, access_config_path,
+                                should_log_headers, log_path, should_flush_log,
+                                num_threads):
+    log_file = setup_log(log_path, should_flush_log)
+
+    socket = create_socket(host, port)
+
+    auth_config = None
+    if access_config_path is not None:
+        if not os.path.exists(access_config_path):
+            log_file.write('No such file: {0}\n'.format(access_config_path))
+            sys.exit(1)
+        log_file.write('Setting up access restrictions\n')
+        auth_config = AuthConfig()
+        auth_config.load_config(access_config_path)
+
+    log_file.write('listening on {0}:{1} using {2} threads\n'.format(
+        host, port, num_threads))
+
+    for i in range(num_threads):
+        listener = ListenerThread(host, port, socket, log_file,
+                                  should_log_headers, auth_config)
+        listener.setDaemon(True)
+        listener.start()
+    time.sleep(9e9)
+
 def main():
     parser = argparse.ArgumentParser(prog='server.py')
     parser.add_argument('port', type=int, help="The port to listen on")
@@ -314,31 +340,9 @@ def main():
                         help="The number of threads to launch")
     args = parser.parse_args()
 
-    port = args.port
-    access_config_path = args.access_config
-    log_file = setup_log(args.log, args.should_flush_log)
-    host = 'localhost'
-
-    socket = create_socket(host, port)
-
-    auth_config = None
-    if access_config_path is not None:
-        if not os.path.exists(access_config_path):
-            log_file.write('No such file: {0}\n'.format(access_config_path))
-            sys.exit(1)
-        log_file.write('Setting up access restrictions\n')
-        auth_config = AuthConfig()
-        auth_config.load_config(access_config_path)
-
-    log_file.write('listening on {0}:{1} using {2} threads\n'.format(
-        host, port, args.threads))
-
-    for i in range(args.threads):
-        listener = ListenerThread(host, port, socket, log_file,
-                                  args.log_headers, auth_config)
-        listener.setDaemon(True)
-        listener.start()
-    time.sleep(9e9)
+    setup_and_start_http_server('localhost', args.port, args.access_config,
+                                args.log_headers, args.log,
+                                args.should_flush_log, args.threads)
 
 if __name__ == '__main__':
     main()
