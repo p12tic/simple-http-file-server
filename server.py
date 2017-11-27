@@ -226,14 +226,17 @@ class AuthUploadHandler(SimpleUploadHandler):
             SimpleUploadHandler.do_PUT(self)
 
 class PrintThread(threading.Thread):
-    def __init__(self, log_file):
+    def __init__(self, log_file, should_flush=False):
         super().__init__()
         self.log_file = log_file
+        self.should_flush = should_flush
         self.queue = queue.Queue()
 
     def run(self):
         while True:
             self.log_file.write(self.queue.get())
+            if self.should_flush:
+                self.log_file.flush()
             self.queue.task_done()
 
 class FileQueueWrapper:
@@ -243,13 +246,13 @@ class FileQueueWrapper:
     def write(self, data):
         self.queue.put(data)
 
-def setup_log(log_path):
+def setup_log(log_path, should_flush_log):
     if log_path is not None:
         log_file = open(log_path, 'w')
     else:
         log_file = sys.stdout
 
-    log_thread = PrintThread(log_file)
+    log_thread = PrintThread(log_file, should_flush=should_flush_log)
     log_thread.setDaemon(True)
     log_thread.start()
     return FileQueueWrapper(log_thread.queue)
@@ -305,13 +308,15 @@ def main():
                         help="If set logs headers of all requests")
     parser.add_argument('--log', type=str, default=None,
                         help="Path to log file")
+    parser.add_argument('--should_flush_log', action='store_true', default=False,
+                        help="If set, flushes log to disk after each entry")
     parser.add_argument('--threads', type=int, default=2,
                         help="The number of threads to launch")
     args = parser.parse_args()
 
     port = args.port
     access_config_path = args.access_config
-    log_file = setup_log(args.log)
+    log_file = setup_log(args.log, args.should_flush_log)
     host = 'localhost'
 
     socket = create_socket(host, port)
