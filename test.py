@@ -20,9 +20,10 @@ import shutil
 import subprocess
 import requests
 import time
+import unittest
 
-class Test:
-    def __init__(self, port = 8080, perm_path = None, perms_json = None):
+class TestFixture(unittest.TestCase):
+    def setUp(self, port = 8080, perm_path = None, perms_json = None):
         self.process = None
         self.port = port
 
@@ -46,36 +47,31 @@ class Test:
         self.process = subprocess.Popen(cmd, cwd=self.root)
         time.sleep(1)
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
+    def tearDown(self):
         if self.process != None:
             self.process.terminate()
             self.process.wait()
 
-    def test_get(self, path, expected_status, expected_text=None, user=None, psw=None):
+    def assert_get(self, path, expected_status, expected_text=None, user=None, psw=None):
         url = "http://localhost:" + str(self.port) + "/" + path
         if user != None and psw != None:
             r = requests.get(url, auth=(user, psw))
         else:
             r = requests.get(url)
-        if r.status_code != expected_status:
-            raise Exception("Unexpected status code: " +
-                            "expected:{0} got:{1}".format(expected_status, r.status_code))
-        if expected_text != None and r.text != expected_text:
-            raise Exception("Unexpected text: " +
-                            "expected:{0} got:{1}".format(expected_text, r.text))
+        self.assertEqual(expected_status, r.status_code,
+                         'Incorrect GET status for url {0}'.format(url))
+        if expected_text != None:
+            self.assertEqual(expected_text, r.text,
+                             'Incorrect GET text for url {0}'.format(url))
 
-    def test_put(self, path, expected_status, data, user=None, psw=None):
+    def assert_put(self, path, expected_status, data, user=None, psw=None):
         url = "http://localhost:" + str(self.port) + "/" + path
         if user != None and psw != None:
             r = requests.put(url, data=data, auth=(user, psw))
         else:
             r = requests.put(url, data=data)
-        if r.status_code != expected_status:
-            raise Exception("Unexpected status code: " +
-                            "expected:{0} got:{1}".format(expected_status, r.status_code))
+        self.assertEqual(expected_status, r.status_code,
+                         'Incorrect PUT status for url {0}'.format(url))
 
     def put_path(self, path, text=None):
         path = os.path.join(self.root, path)
@@ -87,26 +83,29 @@ class Test:
         else:
             open(path, "w").write(text)
 
-    def test_get_path(self, path, text=None):
+    def assert_get_path(self, path, text=None):
         path = os.path.join(self.root, path)
-        if not os.path.exists(path):
-            raise Exception("File does not exist {0}".format(path))
+        self.assertTrue(os.path.exists(path))
+
         read_text = open(path, 'r').read()
-        if text != None and text != read_text:
-            raise Exception("Unexpected text at path {0}: " +
-                            "expected:{1} got:{2}".format(path, text, read_text))
+        self.assertEqual(text, read_text,
+                         'Incorrect text at path {0}'.format(path))
 
-with Test() as test:
-    test.test_get("", 200)
-    test.test_put("ff", 200, "1")
-    test.test_get("ff1", 404)
-    test.test_get("ff", 200, "1")
-    test.test_put("dir/ff", 200, "1")
-    test.test_put("dir", 405, "1")
-    test.test_get("dir", 200)
-    test.test_get("dir/ff", 200, "1")
+class TestNoAuth(TestFixture):
+    def test_no_auth(self):
+        self.assert_get("", 200)
+        self.assert_put("ff", 200, "1")
+        self.assert_get("ff1", 404)
+        self.assert_get("ff", 200, "1")
+        self.assert_put("dir/ff", 200, "1")
+        self.assert_put("dir", 405, "1")
+        self.assert_get("dir", 200)
+        self.assert_get("dir/ff", 200, "1")
 
-perms_json = '''
+class TestAuthNoneAllowed(TestFixture):
+
+    def setUp(self):
+        perms_json = '''
 {
     "paths" : [
         { "path" : ".", "user" : "*", "perms" : "" }
@@ -114,19 +113,22 @@ perms_json = '''
     "users" : []
 }
 '''
+        super().setUp(perms_json=perms_json)
 
-# No requests should be allowed
-with Test(perms_json=perms_json) as test:
-    test.test_get("", 401)
-    test.test_put("ff", 401, "1")
-    test.test_get("ff1", 401)
-    test.test_get("ff", 401)
-    test.test_put("dir/ff", 401, "1")
-    test.test_put("dir", 401, "1")
-    test.test_get("dir", 401)
-    test.test_get("dir/ff", 401)
+    def test_none_allowed(self):
+        self.assert_get("", 401)
+        self.assert_put("ff", 401, "1")
+        self.assert_get("ff1", 401)
+        self.assert_get("ff", 401)
+        self.assert_put("dir/ff", 401, "1")
+        self.assert_put("dir", 401, "1")
+        self.assert_get("dir", 401)
+        self.assert_get("dir/ff", 401)
 
-perms_json = '''
+class TestAuthWriteOnly(TestFixture):
+
+    def setUp(self):
+        perms_json = '''
 {
     "paths" : [
         { "path" : ".", "user" : "*", "perms" : "w" }
@@ -134,37 +136,43 @@ perms_json = '''
     "users" : []
 }
 '''
+        super().setUp(perms_json=perms_json)
 
-# Should allow only write requests
-with Test(perms_json=perms_json) as test:
-    test.test_get("", 401)
-    test.test_put("ff", 200, "1")
-    test.test_get("ff1", 401)
-    test.test_get("ff", 401)
-    test.test_put("dir/ff", 200, "1")
-    test.test_get("dir", 401)
-    test.test_get("dir/ff", 401)
+    def test_write_only(self):
+        self.assert_get("", 401)
+        self.assert_put("ff", 200, "1")
+        self.assert_get("ff1", 401)
+        self.assert_get("ff", 401)
+        self.assert_put("dir/ff", 200, "1")
+        self.assert_get("dir", 401)
+        self.assert_get("dir/ff", 401)
 
-perms_json = '''
-{
+class TestAuthReadOnly(TestFixture):
+
+    def setUp(self):
+        perms_json = '''{
     "paths" : [
         { "path" : ".", "user" : "*", "perms" : "r" }
     ],
     "users" : []
 }
 '''
+        super().setUp(perms_json=perms_json)
 
-# Should allow only read requests
-with Test(perms_json=perms_json) as test:
-    test.test_get("", 200)
-    test.test_put("ff", 401, "1")
-    test.test_get("ff1", 404)
-    test.test_get("ff", 404)
-    test.test_put("dir/ff", 401, "1")
-    test.test_get("dir", 404)
-    test.test_get("dir/ff", 404)
 
-perms_json = '''
+    def test_read_only(self):
+        self.assert_get("", 200)
+        self.assert_put("ff", 401, "1")
+        self.assert_get("ff1", 404)
+        self.assert_get("ff", 404)
+        self.assert_put("dir/ff", 401, "1")
+        self.assert_get("dir", 404)
+        self.assert_get("dir/ff", 404)
+
+class TestAuthAllAllowed(TestFixture):
+
+    def setUp(self):
+        perms_json = '''
 {
     "paths" : [
         { "path" : ".", "user" : "*", "perms" : "rw" }
@@ -172,19 +180,22 @@ perms_json = '''
     "users" : []
 }
 '''
+        super().setUp(perms_json=perms_json)
 
-# Should allow all requests
-with Test(perms_json=perms_json) as test:
-    test.test_get("", 200)
-    test.test_get("ff1", 404)
-    test.test_put("ff", 200, "1")
-    test.test_get("ff1", 404)
-    test.test_get("ff", 200, "1")
-    test.test_put("dir/ff", 200, "1")
-    test.test_get("dir", 200)
-    test.test_get("dir/ff", 200, "1")
+    def test_allowed(self):
+        self.assert_get("", 200)
+        self.assert_get("ff1", 404)
+        self.assert_put("ff", 200, "1")
+        self.assert_get("ff1", 404)
+        self.assert_get("ff", 200, "1")
+        self.assert_put("dir/ff", 200, "1")
+        self.assert_get("dir", 200)
+        self.assert_get("dir/ff", 200, "1")
 
-perms_json = '''
+class TestComplexPermissions(TestFixture):
+
+    def setUp(self):
+        perms_json = '''
 {
     "paths" : [
         { "path" : ".", "user" : "*", "perms" : "" },
@@ -204,112 +215,115 @@ perms_json = '''
     ]
 }
 '''
+        super().setUp(perms_json=perms_json)
 
-with Test(perms_json=perms_json) as test:
-    test.test_get("", 401)
-    test.test_put("ff", 401, "1")
-    test.test_get("ff1", 401)
+    def test_unauthorized_not_allowed(self):
+        self.assert_get("", 401)
+        self.assert_put("ff", 401, "1")
+        self.assert_get("ff1", 401)
 
-    test.test_get("or", 404)
-    test.test_put("or/t", 200, "1", user='user1', psw='pass1')
-    test.test_put("or/t", 401, "1", user='user1', psw='p')
-    test.test_put("or/t", 401, "1", user='user2', psw='pass2')
-    test.test_put("or/t", 401, "1", user='user2', psw='p')
-    test.test_get("or/t", 401, user='user1', psw='pass1')
-    test.test_get("or/t", 200, "1", user='user2', psw='pass2')
-    test.test_get("or", 200)
-    test.test_get("or/t", 200, "1")
+    def test_readonly_unauthorized(self):
+        self.assert_get("or", 404)
+        self.assert_put("or/t", 200, "1", user='user1', psw='pass1')
+        self.assert_put("or/t", 401, "1", user='user1', psw='p')
+        self.assert_put("or/t", 401, "1", user='user2', psw='pass2')
+        self.assert_put("or/t", 401, "1", user='user2', psw='p')
+        self.assert_get("or/t", 401, user='user1', psw='pass1')
+        self.assert_get("or/t", 200, "1", user='user2', psw='pass2')
+        self.assert_get("or", 200)
+        self.assert_get("or/t", 200, "1")
 
-    test.test_put("ow/t", 200, "1")
-    test.test_put("ow/t", 401, "1", user='user1', psw='pass1')
-    test.test_put("ow/t", 401, "1", user='user1', psw='p')
-    test.test_put("ow/t", 200, "1", user='user2', psw='pass2')
-    test.test_put("ow/t", 401, "1", user='user2', psw='p')
-    test.test_get("ow", 401)
-    test.test_get("ow/t", 401)
-    test.test_get("ow/t", 200, "1", user='user1', psw='pass1')
-    test.test_get("ow/t", 401, user='user1', psw='p')
-    test.test_get("ow/t", 401, user='user2', psw='pass2')
-    test.test_get("ow/t", 401, user='user2', psw='p')
+    def test_writeonly_unauthorized(self):
+        self.assert_put("ow/t", 200, "1")
+        self.assert_put("ow/t", 401, "1", user='user1', psw='pass1')
+        self.assert_put("ow/t", 401, "1", user='user1', psw='p')
+        self.assert_put("ow/t", 200, "1", user='user2', psw='pass2')
+        self.assert_put("ow/t", 401, "1", user='user2', psw='p')
+        self.assert_get("ow", 401)
+        self.assert_get("ow/t", 401)
+        self.assert_get("ow/t", 200, "1", user='user1', psw='pass1')
+        self.assert_get("ow/t", 401, user='user1', psw='p')
+        self.assert_get("ow/t", 401, user='user2', psw='pass2')
+        self.assert_get("ow/t", 401, user='user2', psw='p')
 
-    test.test_get("orw/t", 404)
-    test.test_get("orw", 404)
-    test.test_put("orw/t", 200, "1")
-    test.test_get("orw/t", 200, "1")
-    test.test_get("orw", 200)
-    test.test_put("orw/t", 401, "1", user='user1', psw='pass1')
-    test.test_put("orw/t", 401, "1", user='user1', psw='p')
-    test.test_put("orw/t", 200, "1", user='user2', psw='pass2')
-    test.test_put("orw/t", 401, "1", user='user2', psw='p')
-    test.test_get("orw/t", 200, "1")
-    test.test_get("orw", 401, user='user1', psw='pass1')
-    test.test_get("orw/t", 401, user='user1', psw='pass1')
-    test.test_get("orw/t", 401, user='user1', psw='p')
-    test.test_get("orw/t", 200, "1", user='user2', psw='pass2')
-    test.test_get("orw/t", 401, user='user2', psw='p')
+    def test_user_blacklist(self):
+        self.assert_get("orw/t", 404)
+        self.assert_get("orw", 404)
+        self.assert_put("orw/t", 200, "1")
+        self.assert_get("orw/t", 200, "1")
+        self.assert_get("orw", 200)
+        self.assert_put("orw/t", 401, "1", user='user1', psw='pass1')
+        self.assert_put("orw/t", 401, "1", user='user1', psw='p')
+        self.assert_put("orw/t", 200, "1", user='user2', psw='pass2')
+        self.assert_put("orw/t", 401, "1", user='user2', psw='p')
+        self.assert_get("orw/t", 200, "1")
+        self.assert_get("orw", 401, user='user1', psw='pass1')
+        self.assert_get("orw/t", 401, user='user1', psw='pass1')
+        self.assert_get("orw/t", 401, user='user1', psw='p')
+        self.assert_get("orw/t", 200, "1", user='user2', psw='pass2')
+        self.assert_get("orw/t", 401, user='user2', psw='p')
 
-    test.put_path("ur/t", "1")
-    test.test_get("ur/t", 401)
-    test.test_get("ur", 401)
-    test.test_put("ur/t", 401, "1")
-    test.test_get("ur/t", 401)
+    def test_readonly_user(self):
+        self.put_path("ur/t", "1")
+        self.assert_get("ur/t", 401)
+        self.assert_get("ur", 401)
+        self.assert_put("ur/t", 401, "1")
+        self.assert_get("ur/t", 401)
 
-    test.test_put("ur/t", 401, "1", user='user1', psw='pass1')
-    test.test_put("ur/t", 401, "1", user='user1', psw='p')
-    test.test_put("ur/t", 401, "1", user='user2', psw='pass2')
-    test.test_put("ur/t", 401, "1", user='user2', psw='p')
-    test.test_get("ur/t", 200, "1", user='user1', psw='pass1')
-    test.test_get("ur/t", 401, user='user2', psw='pass2')
-    test.test_get("ur", 200, user='user1', psw='pass1')
-    test.test_get("ur", 401, user='user1', psw='p')
-    test.test_get("ur", 401, user='user2', psw='pass2')
-    test.test_get("ur", 401, user='user2', psw='p')
+        self.assert_put("ur/t", 401, "1", user='user1', psw='pass1')
+        self.assert_put("ur/t", 401, "1", user='user1', psw='p')
+        self.assert_put("ur/t", 401, "1", user='user2', psw='pass2')
+        self.assert_put("ur/t", 401, "1", user='user2', psw='p')
+        self.assert_get("ur/t", 200, "1", user='user1', psw='pass1')
+        self.assert_get("ur/t", 401, user='user2', psw='pass2')
+        self.assert_get("ur", 200, user='user1', psw='pass1')
+        self.assert_get("ur", 401, user='user1', psw='p')
+        self.assert_get("ur", 401, user='user2', psw='pass2')
+        self.assert_get("ur", 401, user='user2', psw='p')
 
-    test.test_get("ur/t", 401)
-    test.test_get("ur", 401)
-    test.test_put("ur/t", 401, "1")
-    test.test_get("ur/t", 401)
+        self.assert_get("ur/t", 401)
+        self.assert_get("ur", 401)
+        self.assert_put("ur/t", 401, "1")
+        self.assert_get("ur/t", 401)
 
-    test.test_put("uw/t", 200, "1", user='user1', psw='pass1')
-    test.test_put("uw/t", 401, "1", user='user1', psw='p')
-    test.test_put("uw/t", 401, "1", user='user2', psw='pass2')
-    test.test_put("uw/t", 401, "1", user='user2', psw='p')
-    test.test_get("uw/t", 401, user='user1', psw='pass1')
-    test.test_get("uw/t", 401, user='user2', psw='pass2')
-    test.test_get("uw", 401, user='user1', psw='pass1')
-    test.test_get("uw", 401, user='user1', psw='p')
-    test.test_get("uw", 401, user='user2', psw='pass2')
-    test.test_get("uw", 401, user='user2', psw='p')
-    test.test_get_path('uw/t', "1")
+    def test_writeonly_user(self):
+        self.assert_put("uw/t", 200, "1", user='user1', psw='pass1')
+        self.assert_put("uw/t", 401, "1", user='user1', psw='p')
+        self.assert_put("uw/t", 401, "1", user='user2', psw='pass2')
+        self.assert_put("uw/t", 401, "1", user='user2', psw='p')
+        self.assert_get("uw/t", 401, user='user1', psw='pass1')
+        self.assert_get("uw/t", 401, user='user2', psw='pass2')
+        self.assert_get("uw", 401, user='user1', psw='pass1')
+        self.assert_get("uw", 401, user='user1', psw='p')
+        self.assert_get("uw", 401, user='user2', psw='pass2')
+        self.assert_get("uw", 401, user='user2', psw='p')
+        self.assert_get_path('uw/t', "1")
 
-    test.test_get("urw/t", 401)
-    test.test_get("urw", 401)
-    test.test_put("urw/t", 401, "1")
-    test.test_get("urw/t", 401)
+    def test_readwrite_user(self):
+        self.assert_get("urw/t", 401)
+        self.assert_get("urw", 401)
+        self.assert_put("urw/t", 401, "1")
+        self.assert_get("urw/t", 401)
 
-    test.test_put("urw/t", 200, "1", user='user1', psw='pass1')
-    test.test_put("urw/t", 401, "1", user='user1', psw='p')
-    test.test_put("urw/t", 401, "1", user='user2', psw='pass2')
-    test.test_put("urw/t", 401, "1", user='user2', psw='p')
-    test.test_get("urw/t", 200, "1", user='user1', psw='pass1')
-    test.test_get("urw/t", 401, user='user2', psw='pass2')
-    test.test_get("urw", 200, user='user1', psw='pass1')
-    test.test_get("urw", 401, user='user1', psw='p')
-    test.test_get("urw", 401, user='user2', psw='pass2')
-    test.test_get("urw", 401, user='user2', psw='p')
+        self.assert_put("urw/t", 200, "1", user='user1', psw='pass1')
+        self.assert_put("urw/t", 401, "1", user='user1', psw='p')
+        self.assert_put("urw/t", 401, "1", user='user2', psw='pass2')
+        self.assert_put("urw/t", 401, "1", user='user2', psw='p')
+        self.assert_get("urw/t", 200, "1", user='user1', psw='pass1')
+        self.assert_get("urw/t", 401, user='user2', psw='pass2')
+        self.assert_get("urw", 200, user='user1', psw='pass1')
+        self.assert_get("urw", 401, user='user1', psw='p')
+        self.assert_get("urw", 401, user='user2', psw='pass2')
+        self.assert_get("urw", 401, user='user2', psw='p')
 
-    test.test_put("other/t", 401, "1", user='user1', psw='pass1')
-    test.test_put("other/t", 401, "1", user='user1', psw='p')
-    test.test_put("other/t", 401, "1", user='user2', psw='pass2')
-    test.test_put("other/t", 401, "1", user='user2', psw='p')
-    test.test_get("other/t", 401, user='user1', psw='pass1')
-    test.test_get("other/t", 401, user='user2', psw='pass2')
-    test.test_get("other", 401, user='user1', psw='pass1')
-    test.test_get("other", 401, user='user1', psw='p')
-    test.test_get("other", 401, user='user2', psw='pass2')
-    test.test_get("other", 401, user='user2', psw='p')
-
-
-
-
-
+    def test_nonconfigured_path(self):
+        self.assert_put("other/t", 401, "1", user='user1', psw='pass1')
+        self.assert_put("other/t", 401, "1", user='user1', psw='p')
+        self.assert_put("other/t", 401, "1", user='user2', psw='pass2')
+        self.assert_put("other/t", 401, "1", user='user2', psw='p')
+        self.assert_get("other/t", 401, user='user1', psw='pass1')
+        self.assert_get("other/t", 401, user='user2', psw='pass2')
+        self.assert_get("other", 401, user='user1', psw='pass1')
+        self.assert_get("other", 401, user='user1', psw='p')
+        self.assert_get("other", 401, user='user2', psw='pass2')
+        self.assert_get("other", 401, user='user2', psw='p')
