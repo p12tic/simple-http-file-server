@@ -17,12 +17,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 import argparse
-import os
 import base64
 import json
+import os
 import queue
 import socket
 import sys
+import time
 import threading
 
 class SimpleUploadHandler(SimpleHTTPRequestHandler):
@@ -253,6 +254,48 @@ def setup_log(log_path):
     log_thread.start()
     return FileQueueWrapper(log_thread.queue)
 
+def create_socket(host, port):
+    addr = (host, port)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(addr)
+    sock.listen(5)
+    return sock
+
+class ExternalSocketHTTPServer(HTTPServer):
+    def __init__(self, server_address, RequestHandlerClass, socket):
+        super().__init__(server_address, RequestHandlerClass)
+        self.socket = socket
+
+    def server_bind(self):
+        pass
+
+    def server_close(self):
+        pass
+
+class ListenerThread(threading.Thread):
+    def __init__(self, host, port, socket, log_file, log_headers, auth_config):
+        threading.Thread.__init__(self)
+        self.host = host
+        self.port = port
+        self.socket = socket
+        self.log_file = log_file
+        self.log_headers = log_headers
+        self.auth_config = auth_config
+
+    def run(self):
+        if self.auth_config is None:
+            server = ExternalSocketHTTPServer((self.host, self.port),
+                                              SimpleUploadHandler, self.socket)
+        else:
+            server = ExternalSocketHTTPServer((self.host, self.port),
+                                              AuthUploadHandler, self.socket)
+            server.auth_config = self.auth_config
+
+        server.log_file = self.log_file
+        server.log_headers = self.log_headers
+        server.serve_forever()
+
 def main():
     parser = argparse.ArgumentParser(prog='server.py')
     parser.add_argument('port', type=int, help="The port to listen on")
@@ -262,12 +305,16 @@ def main():
                         help="If set logs headers of all requests")
     parser.add_argument('--log', type=str, default=None,
                         help="Path to log file")
+    parser.add_argument('--threads', type=int, default=2,
+                        help="The number of threads to launch")
     args = parser.parse_args()
 
     port = args.port
     access_config_path = args.access_config
     log_file = setup_log(args.log)
     host = 'localhost'
+
+    socket = create_socket(host, port)
 
     auth_config = None
     if access_config_path is not None:
@@ -278,17 +325,15 @@ def main():
         auth_config = AuthConfig()
         auth_config.load_config(access_config_path)
 
-    log_file.write('listening on {0}:{1}\n'.format(host, port))
+    log_file.write('listening on {0}:{1} using {2} threads\n'.format(
+        host, port, args.threads))
 
-    if auth_config is None:
-        server = HTTPServer((host, port), SimpleUploadHandler)
-    else:
-        server = HTTPServer((host, port), AuthUploadHandler)
-        server.auth_config = auth_config
-
-    server.log_file = log_file
-    server.log_headers = args.log_headers
-    server.serve_forever()
+    for i in range(args.threads):
+        listener = ListenerThread(host, port, socket, log_file,
+                                  args.log_headers, auth_config)
+        listener.setDaemon(True)
+        listener.start()
+    time.sleep(9e9)
 
 if __name__ == '__main__':
     main()

@@ -1,12 +1,15 @@
 Information
 ===========
 
-This is a simple python HTTP server which supports uploads. Doing GET path/to/file
-will return the content of path relative to the current directory the server
-was started from. Doing PUT path/to/file will upload a file to the path relative
-to the current directory. Any existing directories are automatically created.
-PUT fails if the given path identifies an existing directory or creating needed
-directories would overwrite an existing file.
+This is a simple python HTTP multithreaded server which supports uploads. Doing
+GET path/to/file will return the content of path relative to the current
+directory the server was started from. Doing PUT path/to/file will upload a
+file to the path relative to the current directory. Any existing directories
+are automatically created. PUT fails if the given path identifies an existing
+directory or creating needed directories would overwrite an existing file.
+
+The server supports serving multiple streams concurrently. This is useful if
+the server will serve many concurrent large streams over slow connection
 
 Usage
 =====
@@ -14,6 +17,11 @@ Usage
 Just start the server by command line:
 
     python3 server.py
+
+In case the default number of concurrent connections is not enough, increase
+the number of listener threads:
+
+    python3 server.py --threads=8
 
 The server implements a simple permission system. Users authenticate via HTTP
 Basic authentication. The permissions are stored in a python file (see below):
