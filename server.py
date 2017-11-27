@@ -267,19 +267,23 @@ def main():
     port = args.port
     access_config_path = args.access_config
     log_file = setup_log(args.log)
+    host = 'localhost'
 
-    if access_config_path is not None and not os.path.exists(access_config_path):
-        log_file.write("No such file: " + access_config_path)
-        sys.exit(1)
-
-    if access_config_path is None:
-        log_file.write('listening on localhost:%d' %(port))
-        server = HTTPServer(('localhost', port), SimpleUploadHandler)
-    else:
-        log_file.write('listening on localhost:%d with access restrictions' %(port))
+    auth_config = None
+    if access_config_path is not None:
+        if not os.path.exists(access_config_path):
+            log_file.write('No such file: {0}\n'.format(access_config_path))
+            sys.exit(1)
+        log_file.write('Setting up access restrictions\n')
         auth_config = AuthConfig()
         auth_config.load_config(access_config_path)
-        server = HTTPServer(('localhost', port), AuthUploadHandler)
+
+    log_file.write('listening on {0}:{1}\n'.format(host, port))
+
+    if auth_config is None:
+        server = HTTPServer((host, port), SimpleUploadHandler)
+    else:
+        server = HTTPServer((host, port), AuthUploadHandler)
         server.auth_config = auth_config
 
     server.log_file = log_file
