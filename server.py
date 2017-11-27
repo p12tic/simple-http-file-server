@@ -18,10 +18,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 import argparse
 import os
-import sys
 import base64
 import json
+import queue
 import socket
+import sys
+import threading
 
 class SimpleUploadHandler(SimpleHTTPRequestHandler):
 
@@ -222,6 +224,35 @@ class AuthUploadHandler(SimpleUploadHandler):
         if self.check_auth('w'):
             SimpleUploadHandler.do_PUT(self)
 
+class PrintThread(threading.Thread):
+    def __init__(self, log_file):
+        super().__init__()
+        self.log_file = log_file
+        self.queue = queue.Queue()
+
+    def run(self):
+        while True:
+            self.log_file.write(self.queue.get())
+            self.queue.task_done()
+
+class FileQueueWrapper:
+    def __init__(self, queue):
+        self.queue = queue
+
+    def write(self, data):
+        self.queue.put(data)
+
+def setup_log(log_path):
+    if log_path is not None:
+        log_file = open(log_path, 'w')
+    else:
+        log_file = sys.stdout
+
+    log_thread = PrintThread(log_file)
+    log_thread.setDaemon(True)
+    log_thread.start()
+    return FileQueueWrapper(log_thread.queue)
+
 def main():
     parser = argparse.ArgumentParser(prog='server.py')
     parser.add_argument('port', type=int, help="The port to listen on")
@@ -235,12 +266,7 @@ def main():
 
     port = args.port
     access_config_path = args.access_config
-    log_path = args.log
-
-    if log_path is not None:
-        log_file = open(log_path, 'w')
-    else:
-        log_file = sys.stdout
+    log_file = setup_log(args.log)
 
     if access_config_path is not None and not os.path.exists(access_config_path):
         log_file.write("No such file: " + access_config_path)
