@@ -33,7 +33,8 @@ class TestFixture(unittest.TestCase):
 
         if perms_json != None:
             perm_path = os.path.join(file_dir, "tmp_tests_perms.json")
-            open(perm_path, "w").write(perms_json)
+            with open(perm_path, "w") as file:
+                file.write(perms_json)
 
         if perm_path != None:
             perm_path = os.path.abspath(perm_path)
@@ -78,16 +79,16 @@ class TestFixture(unittest.TestCase):
         dir = os.path.dirname(path)
         if not os.path.exists(dir):
             os.makedirs(dir)
-        if text == None:
-            open(path, "w")
-        else:
-            open(path, "w").write(text)
+        with open(path, "w") as file:
+            if text is not None:
+                file.write(text)
 
     def assert_get_path(self, path, text=None):
         path = os.path.join(self.root, path)
         self.assertTrue(os.path.exists(path))
 
-        read_text = open(path, 'r').read()
+        with open(path, 'r') as file:
+            read_text = file.read()
         self.assertEqual(text, read_text,
                          'Incorrect text at path {0}'.format(path))
 
