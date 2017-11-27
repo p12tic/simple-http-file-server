@@ -28,6 +28,23 @@ Basic authentication. The permissions are stored in a python file (see below):
 
     python3 server.py --access_config ../perms.json
 
+The following shows full list of accepted command line arguments:
+
+    usage: server.py [-h] [--access_config ACCESS_CONFIG] [--log_headers]
+                     [--log LOG] [--threads THREADS]
+                     port
+
+    positional arguments:
+      port                  The port to listen on
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --access_config ACCESS_CONFIG
+                            Path to access config
+      --log_headers         If set logs headers of all requests
+      --log LOG             Path to log file
+      --threads THREADS     The number of threads to launch
+
 Permissions
 ===========
 
