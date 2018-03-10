@@ -41,16 +41,11 @@ class SimpleUploadHandler(SimpleHTTPRequestHandler):
                 os.makedirs(parent_dir)
 
             length = int(self.headers.get('Content-Length'))
+
             fout = open(path, 'wb')
-
-            while length > 0:
-                bufsize = 102400
-                if length < bufsize:
-                    bufsize = length
-                length -= bufsize
-
-                fout.write(self.rfile.read(bufsize))
+            self.copy_fileobj_length(self.rfile, fout, length)
             fout.close()
+
         except Exception as e:
             self.log_message("%s", str(e))
             self.send_error(405)
@@ -58,6 +53,14 @@ class SimpleUploadHandler(SimpleHTTPRequestHandler):
 
         self.send_response(200)
         self.end_headers()
+
+    def copy_fileobj_length(self, in_file, out_file, length, bufsize=1024*128):
+        while length > 0:
+            if length < bufsize:
+                bufsize = length
+            length -= bufsize
+
+            out_file.write(in_file.read(bufsize))
 
     def log_write(self, msg):
         if hasattr(self.server, 'log_file') and self.server.log_file is not None:
