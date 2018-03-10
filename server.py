@@ -21,12 +21,14 @@ from http.server import HTTPServer
 import argparse
 import base64
 import json
+import io
 import os
 import queue
 import socket
 import sys
 import time
 import threading
+import urllib
 
 class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
 
@@ -37,16 +39,25 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
     server_version = "SimpleHTTPFileServer/1.0"
 
     def send_head(self):
-        ''' The difference between standard send_head() is that we don't
-            support directory listing and always send
-            'application/octet-stream' content type
+        ''' The differences between standard send_head() are as follows:
+            - in case path is directory, we return the listing as json data
+            - we always send 'application/octet-stream' content type
         '''
         path = self.translate_path(self.path)
         f = None
 
         if os.path.isdir(path):
-            self.send_error(HTTPStatus.FORBIDDEN, 'Path is a directory')
-            return None
+            parts = urllib.parse.urlsplit(self.path)
+            if not parts.path.endswith('/'):
+                # redirect browser - doing basically what apache does
+                self.send_response(HTTPStatus.MOVED_PERMANENTLY)
+                new_parts = (parts[0], parts[1], parts[2] + '/',
+                             parts[3], parts[4])
+                new_url = urllib.parse.urlunsplit(new_parts)
+                self.send_header("Location", new_url)
+                self.end_headers()
+                return None
+            return self.list_directory(path)
 
         try:
             f = open(path, 'rb')
@@ -98,6 +109,34 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
 
         self.send_response(HTTPStatus.OK)
         self.end_headers()
+
+    def _get_directory_list_file_type(self, path):
+        if os.path.isfile(path):
+            return 'file'
+        if os.path.isdir(path):
+            return 'directory'
+        return 'other'
+
+    def list_directory(self, path):
+        try:
+            contents = os.listdir(path)
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND, "Could not list directory")
+            return None
+
+        ret = {fn: self._get_directory_list_file_type(os.path.join(path, fn))
+               for fn in contents}
+
+        encoded = json.dumps(ret, sort_keys=True).encode('utf-8')
+
+        f = io.BytesIO()
+        f.write(encoded)
+        f.seek(0)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-type", "text/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        return f
 
     def copy_fileobj_length(self, in_file, out_file, length, bufsize=1024*128):
         while length > 0:
@@ -236,6 +275,9 @@ class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
             if path.startswith('..'):
                 return False
 
+            if os.path.isdir(path):
+                perm = 'l'
+
             auth_header = self.headers.get('Authorization')
             if auth_header == None:
                 (user, psw) = ('*', None)
@@ -246,7 +288,8 @@ class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
                 if decode_result == None:
                     return False
                 (user, psw) = decode_result
-            return self.server.auth_config.check_path_for_perm(path, perm, user, psw)
+            return self.server.auth_config.check_path_for_perm(path, perm,
+                                                               user, psw)
 
         except Exception as e:
             self.log_message("%s", str(e))
@@ -382,7 +425,8 @@ def main():
                         help="If set logs headers of all requests")
     parser.add_argument('--log', type=str, default=None,
                         help="Path to log file")
-    parser.add_argument('--should_flush_log', action='store_true', default=False,
+    parser.add_argument('--should_flush_log', action='store_true',
+                        default=False,
                         help="If set, flushes log to disk after each entry")
     parser.add_argument('--threads', type=int, default=2,
                         help="The number of threads to launch")

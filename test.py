@@ -57,6 +57,10 @@ class TestFixture(unittest.TestCase):
 
     def assert_get(self, path, expected_status, expected_text=None,
                    user=None, psw=None):
+        if expected_status != HTTPStatus.OK and expected_text is not None:
+            raise Exception('text should not be specified when status is not '
+                            'HTTPStatus.OK')
+
         url = "http://localhost:" + str(self.port) + "/" + path
         if user != None and psw != None:
             r = requests.get(url, auth=(user, psw))
@@ -64,6 +68,7 @@ class TestFixture(unittest.TestCase):
             r = requests.get(url)
         self.assertEqual(expected_status, r.status_code,
                          'Incorrect GET status for url {0}'.format(url))
+
         if expected_text != None:
             self.assertEqual(expected_text, r.text,
                              'Incorrect GET text for url {0}'.format(url))
@@ -77,7 +82,11 @@ class TestFixture(unittest.TestCase):
         self.assertEqual(expected_status, r.status_code,
                          'Incorrect PUT status for url {0}'.format(url))
 
-    def put_path(self, path, text=None):
+    def put_dir(self, path):
+        path = os.path.join(self.root, path)
+        os.makedirs(path)
+
+    def put_file(self, path, text=None):
         path = os.path.join(self.root, path)
         dir = os.path.dirname(path)
         if not os.path.exists(dir):
@@ -97,14 +106,15 @@ class TestFixture(unittest.TestCase):
 
 class TestNoAuth(TestFixture):
     def test_no_auth(self):
-        self.assert_get("", HTTPStatus.FORBIDDEN)
+        self.assert_get('', HTTPStatus.OK, '{}')
         self.assert_put("ff", HTTPStatus.OK, "1")
         self.assert_get("ff1", HTTPStatus.NOT_FOUND)
         self.assert_get("ff", HTTPStatus.OK, "1")
         self.assert_put("dir/ff", HTTPStatus.OK, "1")
         self.assert_put("dir", HTTPStatus.METHOD_NOT_ALLOWED, "1")
-        self.assert_get("dir", HTTPStatus.FORBIDDEN)
+        self.assert_get("dir", HTTPStatus.OK, '{"ff": "file"}')
         self.assert_get("dir/ff", HTTPStatus.OK, "1")
+        self.assert_get('', HTTPStatus.OK, '{"dir": "directory", "ff": "file"}')
 
 class TestAuthNoneAllowed(TestFixture):
 
@@ -165,7 +175,7 @@ class TestAuthReadOnly(TestFixture):
 
 
     def test_read_only(self):
-        self.assert_get("", HTTPStatus.FORBIDDEN)
+        self.assert_get("", HTTPStatus.UNAUTHORIZED)
         self.assert_put("ff", HTTPStatus.UNAUTHORIZED, "1")
         self.assert_get("ff1", HTTPStatus.NOT_FOUND)
         self.assert_get("ff", HTTPStatus.NOT_FOUND)
@@ -173,13 +183,41 @@ class TestAuthReadOnly(TestFixture):
         self.assert_get("dir", HTTPStatus.NOT_FOUND)
         self.assert_get("dir/ff", HTTPStatus.NOT_FOUND)
 
+class TestAuthListOnly(TestFixture):
+
+    def setUp(self):
+        perms_json = '''{
+    "paths" : [
+        { "path" : ".", "user" : "*", "perms" : "l" }
+    ],
+    "users" : []
+}
+'''
+        super().setUp(perms_json=perms_json)
+
+
+    def test_list_only(self):
+        self.assert_get("", HTTPStatus.OK, '{}')
+        self.assert_put("ff", HTTPStatus.UNAUTHORIZED, '1')
+        self.assert_get("ff1", HTTPStatus.UNAUTHORIZED)
+        self.assert_get("ff", HTTPStatus.UNAUTHORIZED)
+        self.assert_put("dir/ff", HTTPStatus.UNAUTHORIZED, '1')
+        self.assert_get("dir", HTTPStatus.UNAUTHORIZED)
+        self.assert_get("dir/ff", HTTPStatus.UNAUTHORIZED)
+
+        self.put_dir('dir')
+        self.assert_get("", HTTPStatus.OK, '{"dir": "directory"}')
+        self.put_file('dir/fn')
+        self.assert_get("dir", HTTPStatus.OK, '{"fn": "file"}')
+        self.assert_get("dir/fn", HTTPStatus.UNAUTHORIZED)
+
 class TestAuthAllAllowed(TestFixture):
 
     def setUp(self):
         perms_json = '''
 {
     "paths" : [
-        { "path" : ".", "user" : "*", "perms" : "rw" }
+        { "path" : ".", "user" : "*", "perms" : "rwl" }
     ],
     "users" : []
 }
@@ -187,13 +225,14 @@ class TestAuthAllAllowed(TestFixture):
         super().setUp(perms_json=perms_json)
 
     def test_allowed(self):
-        self.assert_get("", HTTPStatus.FORBIDDEN)
+        self.assert_get('', HTTPStatus.OK, '{}')
         self.assert_get("ff1", HTTPStatus.NOT_FOUND)
         self.assert_put("ff", HTTPStatus.OK, "1")
         self.assert_get("ff1", HTTPStatus.NOT_FOUND)
+        self.assert_get('', HTTPStatus.OK, '{"ff": "file"}')
         self.assert_get("ff", HTTPStatus.OK, "1")
         self.assert_put("dir/ff", HTTPStatus.OK, "1")
-        self.assert_get("dir", HTTPStatus.FORBIDDEN)
+        self.assert_get("dir", HTTPStatus.OK, '{"ff": "file"}')
         self.assert_get("dir/ff", HTTPStatus.OK, "1")
 
 class TestComplexPermissions(TestFixture):
@@ -207,10 +246,13 @@ class TestComplexPermissions(TestFixture):
         { "path" : "or", "user" : "user1", "perms" : "w" },
         { "path" : "ow", "user" : "*", "perms" : "w" },
         { "path" : "ow", "user" : "user1", "perms" : "r" },
+        { "path" : "ol", "user" : "*", "perms" : "l" },
+        { "path" : "ol", "user" : "user1", "perms" : "r" },
         { "path" : "orw", "user" : "*", "perms" : "rw" },
         { "path" : "orw", "user" : "user1", "perms" : "" },
         { "path" : "ur", "user" : "user1", "perms" : "r" },
         { "path" : "uw", "user" : "user1", "perms" : "w" },
+        { "path" : "ul", "user" : "user1", "perms" : "l" },
         { "path" : "urw", "user" : "user1", "perms" : "rw" }
     ],
     "users" : [
@@ -234,7 +276,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_put("or/t", HTTPStatus.UNAUTHORIZED, "1", user='user2', psw='p')
         self.assert_get("or/t", HTTPStatus.UNAUTHORIZED, user='user1', psw='pass1')
         self.assert_get("or/t", HTTPStatus.OK, "1", user='user2', psw='pass2')
-        self.assert_get("or", HTTPStatus.FORBIDDEN)
+        self.assert_get("or", HTTPStatus.UNAUTHORIZED)
         self.assert_get("or/t", HTTPStatus.OK, "1")
 
     def test_writeonly_unauthorized(self):
@@ -250,12 +292,50 @@ class TestComplexPermissions(TestFixture):
         self.assert_get("ow/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
         self.assert_get("ow/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
 
+    def test_listonly_unauthorized(self):
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED)
+        self.assert_get('ol', HTTPStatus.NOT_FOUND, user='user1', psw='pass1')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
+        self.put_dir('ol')
+        self.assert_get('ol', HTTPStatus.OK, '{}')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user1', psw='pass1')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
+        self.assert_get('ol', HTTPStatus.OK, '{}', user='user2', psw='pass2')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
+
+        self.assert_put("ol/t", HTTPStatus.UNAUTHORIZED, "1")
+        self.assert_put("ol/t", HTTPStatus.UNAUTHORIZED, "1", user='user1', psw='pass1')
+        self.assert_put("ol/t", HTTPStatus.UNAUTHORIZED, "1", user='user1', psw='p')
+        self.assert_put("ol/t", HTTPStatus.UNAUTHORIZED, "1", user='user2', psw='pass2')
+        self.assert_put("ol/t", HTTPStatus.UNAUTHORIZED, "1", user='user2', psw='p')
+
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED)
+        self.assert_get("ol/t", HTTPStatus.NOT_FOUND, user='user1', psw='pass1')
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
+
+        self.put_file('ol/t', '1')
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED)
+        self.assert_get("ol/t", HTTPStatus.OK, '1', user='user1', psw='pass1')
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
+        self.assert_get("ol/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
+
+        self.assert_get('ol', HTTPStatus.OK, '{"t": "file"}')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user1', psw='pass1')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
+        self.assert_get('ol', HTTPStatus.OK, '{"t": "file"}', user='user2', psw='pass2')
+        self.assert_get('ol', HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
+
     def test_user_blacklist(self):
         self.assert_get("orw/t", HTTPStatus.NOT_FOUND)
         self.assert_get("orw", HTTPStatus.NOT_FOUND)
         self.assert_put("orw/t", HTTPStatus.OK, "1")
         self.assert_get("orw/t", HTTPStatus.OK, "1")
-        self.assert_get("orw", HTTPStatus.FORBIDDEN)
+        self.assert_get("orw", HTTPStatus.UNAUTHORIZED)
         self.assert_put("orw/t", HTTPStatus.UNAUTHORIZED, "1", user='user1', psw='pass1')
         self.assert_put("orw/t", HTTPStatus.UNAUTHORIZED, "1", user='user1', psw='p')
         self.assert_put("orw/t", HTTPStatus.OK, "1", user='user2', psw='pass2')
@@ -268,7 +348,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_get("orw/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
 
     def test_readonly_user(self):
-        self.put_path("ur/t", "1")
+        self.put_file("ur/t", "1")
         self.assert_get("ur/t", HTTPStatus.UNAUTHORIZED)
         self.assert_get("ur", HTTPStatus.UNAUTHORIZED)
         self.assert_put("ur/t", HTTPStatus.UNAUTHORIZED, "1")
@@ -280,7 +360,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_put("ur/t", HTTPStatus.UNAUTHORIZED, "1", user='user2', psw='p')
         self.assert_get("ur/t", HTTPStatus.OK, "1", user='user1', psw='pass1')
         self.assert_get("ur/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
-        self.assert_get("ur", HTTPStatus.FORBIDDEN, user='user1', psw='pass1')
+        self.assert_get("ur", HTTPStatus.UNAUTHORIZED, user='user1', psw='pass1')
         self.assert_get("ur", HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
         self.assert_get("ur", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
         self.assert_get("ur", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
@@ -303,6 +383,25 @@ class TestComplexPermissions(TestFixture):
         self.assert_get("uw", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
         self.assert_get_path('uw/t', "1")
 
+    def test_listonly_user(self):
+        self.put_file("ul/t", "1")
+        self.assert_get("ul/t", HTTPStatus.UNAUTHORIZED)
+        self.assert_get("ul", HTTPStatus.UNAUTHORIZED)
+        self.assert_put("ul/t", HTTPStatus.UNAUTHORIZED, "1")
+        self.assert_get("ul/t", HTTPStatus.UNAUTHORIZED)
+
+        self.assert_put("ul/t", HTTPStatus.UNAUTHORIZED, "1", user='user1', psw='pass1')
+        self.assert_put("ul/t", HTTPStatus.UNAUTHORIZED, "1", user='user1', psw='p')
+        self.assert_put("ul/t", HTTPStatus.UNAUTHORIZED, "1", user='user2', psw='pass2')
+        self.assert_put("ul/t", HTTPStatus.UNAUTHORIZED, "1", user='user2', psw='p')
+
+        self.assert_get("ul/t", HTTPStatus.UNAUTHORIZED, user='user1', psw='pass1')
+        self.assert_get("ul/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
+        self.assert_get("ul", HTTPStatus.OK, '{"t": "file"}', user='user1', psw='pass1')
+        self.assert_get("ul", HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
+        self.assert_get("ul", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
+        self.assert_get("ul", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
+
     def test_readwrite_user(self):
         self.assert_get("urw/t", HTTPStatus.UNAUTHORIZED)
         self.assert_get("urw", HTTPStatus.UNAUTHORIZED)
@@ -315,7 +414,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_put("urw/t", HTTPStatus.UNAUTHORIZED, "1", user='user2', psw='p')
         self.assert_get("urw/t", HTTPStatus.OK, "1", user='user1', psw='pass1')
         self.assert_get("urw/t", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
-        self.assert_get("urw", HTTPStatus.FORBIDDEN, user='user1', psw='pass1')
+        self.assert_get("urw", HTTPStatus.UNAUTHORIZED, user='user1', psw='pass1')
         self.assert_get("urw", HTTPStatus.UNAUTHORIZED, user='user1', psw='p')
         self.assert_get("urw", HTTPStatus.UNAUTHORIZED, user='user2', psw='pass2')
         self.assert_get("urw", HTTPStatus.UNAUTHORIZED, user='user2', psw='p')
