@@ -26,7 +26,21 @@ import sys
 import time
 import threading
 
-class SimpleUploadHandler(SimpleHTTPRequestHandler):
+class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
+
+    ''' A simple HTTP request handler that is even simpler than the
+        standard SimpleHTTPRequestHandler
+    '''
+
+    server_version = "SimpleHTTPFileServer/1.0"
+
+    def do_HEAD(self):
+        self.log_headers_if_needed()
+        super().do_HEAD()
+
+    def do_GET(self):
+        self.log_headers_if_needed()
+        super().do_GET()
 
     def do_PUT(self):
         self.log_headers_if_needed()
@@ -173,7 +187,7 @@ class AuthConfig:
 
         return result
 
-class AuthUploadHandler(SimpleUploadHandler):
+class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
 
     def do_AUTHHEAD(self):
         self.log_headers_if_needed()
@@ -216,12 +230,10 @@ class AuthUploadHandler(SimpleUploadHandler):
 
     def do_HEAD(self):
         if self.check_auth('r'):
-            self.log_headers_if_needed()
             super().do_HEAD()
 
     def do_GET(self):
         if self.check_auth('r'):
-            self.log_headers_if_needed()
             super().do_GET()
 
     def do_PUT(self):
@@ -292,10 +304,12 @@ class ListenerThread(threading.Thread):
     def run(self):
         if self.auth_config is None:
             server = ExternalSocketHTTPServer((self.host, self.port),
-                                              SimpleUploadHandler, self.socket)
+                                              SimpleHTTPFileServer,
+                                              self.socket)
         else:
             server = ExternalSocketHTTPServer((self.host, self.port),
-                                              AuthUploadHandler, self.socket)
+                                              AuthSimpleHTTPFileServer,
+                                              self.socket)
             server.auth_config = self.auth_config
 
         server.log_file = self.log_file
