@@ -78,7 +78,7 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
 
         path = self.translate_path(self.path)
         if os.path.isdir(path):
-            self.send_error(405)
+            self.send_error(HTTPStatus.METHOD_NOT_ALLOWED)
             return
         try:
             parent_dir = os.path.dirname(path)
@@ -93,10 +93,10 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
 
         except Exception as e:
             self.log_message("%s", str(e))
-            self.send_error(405)
+            self.send_error(HTTPStatus.METHOD_NOT_ALLOWED)
             return
 
-        self.send_response(200)
+        self.send_response(HTTPStatus.OK)
         self.end_headers()
 
     def copy_fileobj_length(self, in_file, out_file, length, bufsize=1024*128):
@@ -223,7 +223,7 @@ class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
     def do_AUTHHEAD(self):
         self.log_headers_if_needed()
 
-        self.send_response(401)
+        self.send_response(HTTPStatus.UNAUTHORIZED)
         self.send_header('WWW-Authenticate', 'Basic realm=\"Test\"')
         self.send_header('Content-type', 'text/html')
         self.end_headers()
