@@ -54,7 +54,8 @@ class TestFixture(unittest.TestCase):
             self.process.terminate()
             self.process.wait()
 
-    def assert_get(self, path, expected_status, expected_text=None, user=None, psw=None):
+    def assert_get(self, path, expected_status, expected_text=None,
+                   user=None, psw=None):
         url = "http://localhost:" + str(self.port) + "/" + path
         if user != None and psw != None:
             r = requests.get(url, auth=(user, psw))
@@ -95,13 +96,13 @@ class TestFixture(unittest.TestCase):
 
 class TestNoAuth(TestFixture):
     def test_no_auth(self):
-        self.assert_get("", 200)
+        self.assert_get("", 403)
         self.assert_put("ff", 200, "1")
         self.assert_get("ff1", 404)
         self.assert_get("ff", 200, "1")
         self.assert_put("dir/ff", 200, "1")
         self.assert_put("dir", 405, "1")
-        self.assert_get("dir", 200)
+        self.assert_get("dir", 403)
         self.assert_get("dir/ff", 200, "1")
 
 class TestAuthNoneAllowed(TestFixture):
@@ -163,7 +164,7 @@ class TestAuthReadOnly(TestFixture):
 
 
     def test_read_only(self):
-        self.assert_get("", 200)
+        self.assert_get("", 403)
         self.assert_put("ff", 401, "1")
         self.assert_get("ff1", 404)
         self.assert_get("ff", 404)
@@ -185,13 +186,13 @@ class TestAuthAllAllowed(TestFixture):
         super().setUp(perms_json=perms_json)
 
     def test_allowed(self):
-        self.assert_get("", 200)
+        self.assert_get("", 403)
         self.assert_get("ff1", 404)
         self.assert_put("ff", 200, "1")
         self.assert_get("ff1", 404)
         self.assert_get("ff", 200, "1")
         self.assert_put("dir/ff", 200, "1")
-        self.assert_get("dir", 200)
+        self.assert_get("dir", 403)
         self.assert_get("dir/ff", 200, "1")
 
 class TestComplexPermissions(TestFixture):
@@ -232,7 +233,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_put("or/t", 401, "1", user='user2', psw='p')
         self.assert_get("or/t", 401, user='user1', psw='pass1')
         self.assert_get("or/t", 200, "1", user='user2', psw='pass2')
-        self.assert_get("or", 200)
+        self.assert_get("or", 403)
         self.assert_get("or/t", 200, "1")
 
     def test_writeonly_unauthorized(self):
@@ -253,7 +254,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_get("orw", 404)
         self.assert_put("orw/t", 200, "1")
         self.assert_get("orw/t", 200, "1")
-        self.assert_get("orw", 200)
+        self.assert_get("orw", 403)
         self.assert_put("orw/t", 401, "1", user='user1', psw='pass1')
         self.assert_put("orw/t", 401, "1", user='user1', psw='p')
         self.assert_put("orw/t", 200, "1", user='user2', psw='pass2')
@@ -278,7 +279,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_put("ur/t", 401, "1", user='user2', psw='p')
         self.assert_get("ur/t", 200, "1", user='user1', psw='pass1')
         self.assert_get("ur/t", 401, user='user2', psw='pass2')
-        self.assert_get("ur", 200, user='user1', psw='pass1')
+        self.assert_get("ur", 403, user='user1', psw='pass1')
         self.assert_get("ur", 401, user='user1', psw='p')
         self.assert_get("ur", 401, user='user2', psw='pass2')
         self.assert_get("ur", 401, user='user2', psw='p')
@@ -313,7 +314,7 @@ class TestComplexPermissions(TestFixture):
         self.assert_put("urw/t", 401, "1", user='user2', psw='p')
         self.assert_get("urw/t", 200, "1", user='user1', psw='pass1')
         self.assert_get("urw/t", 401, user='user2', psw='pass2')
-        self.assert_get("urw", 200, user='user1', psw='pass1')
+        self.assert_get("urw", 403, user='user1', psw='pass1')
         self.assert_get("urw", 401, user='user1', psw='p')
         self.assert_get("urw", 401, user='user2', psw='pass2')
         self.assert_get("urw", 401, user='user2', psw='p')

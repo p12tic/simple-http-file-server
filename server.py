@@ -15,7 +15,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-from http.server import SimpleHTTPRequestHandler, HTTPServer
+from http import HTTPStatus
+from http.server import SimpleHTTPRequestHandler
+from http.server import HTTPServer
 import argparse
 import base64
 import json
@@ -33,6 +35,35 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
     '''
 
     server_version = "SimpleHTTPFileServer/1.0"
+
+    def send_head(self):
+        ''' The difference between standard send_head() is that we don't
+            support directory listing and always send
+            'application/octet-stream' content type
+        '''
+        path = self.translate_path(self.path)
+        f = None
+
+        if os.path.isdir(path):
+            self.send_error(HTTPStatus.FORBIDDEN, 'Path is a directory')
+            return None
+
+        try:
+            f = open(path, 'rb')
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return None
+        try:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-type", 'application/octet-stream')
+            fs = os.fstat(f.fileno())
+            self.send_header("Content-Length", str(fs[6]))
+            self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
+            self.end_headers()
+            return f
+        except:
+            f.close()
+            raise
 
     def do_HEAD(self):
         self.log_headers_if_needed()
