@@ -214,16 +214,16 @@ class AuthUploadHandler(SimpleUploadHandler):
     def do_HEAD(self):
         if self.check_auth('r'):
             self.log_headers_if_needed()
-            SimpleHTTPRequestHandler.do_HEAD(self)
+            super().do_HEAD()
 
     def do_GET(self):
         if self.check_auth('r'):
             self.log_headers_if_needed()
-            SimpleHTTPRequestHandler.do_GET(self)
+            super().do_GET()
 
     def do_PUT(self):
         if self.check_auth('w'):
-            SimpleUploadHandler.do_PUT(self)
+            super().do_PUT()
 
 class PrintThread(threading.Thread):
     def __init__(self, log_file, should_flush=False):
@@ -278,7 +278,7 @@ class ExternalSocketHTTPServer(HTTPServer):
 
 class ListenerThread(threading.Thread):
     def __init__(self, host, port, socket, log_file, log_headers, auth_config):
-        threading.Thread.__init__(self)
+        super().__init__()
         self.host = host
         self.port = port
         self.socket = socket
