@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
 import shutil
 import subprocess
+import sys
 import requests
 import time
 import unittest
@@ -29,7 +30,7 @@ class TestFixture(unittest.TestCase):
 
         file_dir = os.path.dirname(os.path.abspath(__file__))
 
-        cmd = ["python3", os.path.join(file_dir, 'server.py'), str(port)]
+        cmd = [sys.executable, os.path.join(file_dir, 'server.py'), str(port)]
 
         if perms_json != None:
             perm_path = os.path.join(file_dir, "tmp_tests_perms.json")
