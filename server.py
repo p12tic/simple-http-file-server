@@ -30,6 +30,7 @@ import time
 import threading
 import urllib
 
+
 class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
 
     ''' A simple HTTP request handler that is even simpler than the
@@ -69,10 +70,11 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
             self.send_header("Content-type", 'application/octet-stream')
             fs = os.fstat(f.fileno())
             self.send_header("Content-Length", str(fs[6]))
-            self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
+            self.send_header("Last-Modified",
+                             self.date_time_string(fs.st_mtime))
             self.end_headers()
             return f
-        except:
+        except Exception:
             f.close()
             raise
 
@@ -147,13 +149,15 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
             out_file.write(in_file.read(bufsize))
 
     def log_write(self, msg):
-        if hasattr(self.server, 'log_file') and self.server.log_file is not None:
+        if hasattr(self.server, 'log_file') and \
+                self.server.log_file is not None:
             self.server.log_file.write(msg)
         else:
             sys.stderr.write(msg)
 
     def log_headers_if_needed(self):
-        if hasattr(self.server, 'log_headers') and self.server.log_headers == True:
+        if hasattr(self.server, 'log_headers') and \
+                self.server.log_headers is True:
             self.log_write(str(self.headers))
 
     def log_message(self, format, *args):
@@ -162,10 +166,12 @@ class SimpleHTTPFileServer(SimpleHTTPRequestHandler):
                                     format % args)
         self.log_write(msg)
 
+
 def encode_http_auth_password(user, psw):
     txt = user + ':' + psw
     txt = base64.b64encode(txt.encode('UTF-8')).decode('UTF-8')
     return txt
+
 
 def decode_http_auth_password(txt):
     txt = base64.b64decode(txt.encode('UTF-8')).decode('UTF-8')
@@ -173,6 +179,7 @@ def decode_http_auth_password(txt):
     if len(items) != 2:
         return None
     return (items[0], items[1])
+
 
 class PathConfig:
     def __init__(self, filename):
@@ -182,6 +189,7 @@ class PathConfig:
         self.perms = {}
         self.children = {}
 
+
 class AuthConfig:
 
     def __init__(self, log_file=sys.stdout):
@@ -190,7 +198,8 @@ class AuthConfig:
         self.log_file = log_file
 
     def add_path_config(self, path, user, perms):
-        path_items = [ p for p in path.split('/') if p not in [ '', '.', '..' ] ]
+        path_items = [p for p in path.split('/')
+                      if p not in ['', '.', '..']]
 
         p = self.root
         for i in path_items:
@@ -233,7 +242,7 @@ class AuthConfig:
         return None
 
     def combine_perm(self, prev, next):
-        if next == None:
+        if next is None:
             return prev
         return next
 
@@ -253,9 +262,11 @@ class AuthConfig:
                 return result
             p = p.children[i]
 
-            result = self.combine_perm(result, self.check_perm(p.perms, user, perm))
+            result = self.combine_perm(result,
+                                       self.check_perm(p.perms, user, perm))
 
         return result
+
 
 class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
 
@@ -268,6 +279,16 @@ class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
         self.end_headers()
         self.wfile.write(b'Not authenticated\n')
 
+    def _get_auth_user_and_psw_from_header(self):
+        auth_header = self.headers.get('Authorization')
+        if auth_header is None:
+            return ('*', None)
+
+        if not auth_header.startswith('Basic '):
+            return None
+
+        return decode_http_auth_password(auth_header[6:].strip())
+
     def check_auth_impl(self, perm):
         try:
             path = self.translate_path(self.path)
@@ -278,16 +299,12 @@ class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
             if os.path.isdir(path):
                 perm = 'l'
 
-            auth_header = self.headers.get('Authorization')
-            if auth_header == None:
-                (user, psw) = ('*', None)
-            else:
-                if not auth_header.startswith('Basic '):
-                    return False
-                decode_result = decode_http_auth_password(auth_header[6:].strip())
-                if decode_result == None:
-                    return False
-                (user, psw) = decode_result
+            auth_result = self._get_auth_user_and_psw_from_header()
+            if auth_result is None:
+                return False
+
+            user, psw = auth_result
+
             return self.server.auth_config.check_path_for_perm(path, perm,
                                                                user, psw)
 
@@ -314,6 +331,7 @@ class AuthSimpleHTTPFileServer(SimpleHTTPFileServer):
         if self.check_auth('w'):
             super().do_PUT()
 
+
 class PrintThread(threading.Thread):
     def __init__(self, log_file, should_flush=False):
         super().__init__()
@@ -328,12 +346,14 @@ class PrintThread(threading.Thread):
                 self.log_file.flush()
             self.queue.task_done()
 
+
 class FileQueueWrapper:
     def __init__(self, queue):
         self.queue = queue
 
     def write(self, data):
         self.queue.put(data)
+
 
 def setup_log(log_path, should_flush_log):
     if log_path is not None:
@@ -346,6 +366,7 @@ def setup_log(log_path, should_flush_log):
     log_thread.start()
     return FileQueueWrapper(log_thread.queue)
 
+
 def create_socket(host, port):
     addr = (host, port)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -353,6 +374,7 @@ def create_socket(host, port):
     sock.bind(addr)
     sock.listen(5)
     return sock
+
 
 class ExternalSocketHTTPServer(HTTPServer):
     def __init__(self, server_address, RequestHandlerClass, socket):
@@ -364,6 +386,7 @@ class ExternalSocketHTTPServer(HTTPServer):
 
     def server_close(self):
         pass
+
 
 class ListenerThread(threading.Thread):
     def __init__(self, host, port, socket, log_file, log_headers, auth_config):
@@ -389,6 +412,7 @@ class ListenerThread(threading.Thread):
         server.log_file = self.log_file
         server.log_headers = self.log_headers
         server.serve_forever()
+
 
 def setup_and_start_http_server(host, port, access_config_path,
                                 should_log_headers, log_path, should_flush_log,
@@ -416,6 +440,7 @@ def setup_and_start_http_server(host, port, access_config_path,
         listener.start()
     time.sleep(9e9)
 
+
 def main():
     parser = argparse.ArgumentParser(prog='server.py')
     parser.add_argument('port', type=int, help="The port to listen on")
@@ -435,6 +460,7 @@ def main():
     setup_and_start_http_server('localhost', args.port, args.access_config,
                                 args.log_headers, args.log,
                                 args.should_flush_log, args.threads)
+
 
 if __name__ == '__main__':
     main()
